@@ -4,7 +4,7 @@ import json
 import pathlib
 from datetime import date
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, computed_field
 from pydantic_core import ValidationError
 from rich.progress import (
     BarColumn,
@@ -34,9 +34,7 @@ class Document(BaseModel):
     journal: str
     year: int | None
     month_range: str | None
-    path: pathlib.Path = Field(
-        ...,
-    )
+    path: pathlib.Path
 
     @computed_field
     def kind(self) -> str:
@@ -146,11 +144,20 @@ def get_date_range_metadata(content: str) -> ResearchPaperDates | None:
         return None
 
 
-
 if __name__ == "__main__":
     success_output = []
     failed_output = []
     docs = collect_documents().docs
+
+    # Load already processed documents from documents_success.jsonl
+    already_processed_docs = set()
+    try:
+        with open("documents_success.jsonl") as success_file:
+            for line in success_file:
+                processed_doc = json.loads(line)
+                already_processed_docs.add(processed_doc["path"])
+    except FileNotFoundError:
+        pass
 
     with Progress(
         SpinnerColumn(),
@@ -169,6 +176,15 @@ if __name__ == "__main__":
             progress.update(
                 task, description=f"Processing {index+1}/{total_docs} documents"
             )
+
+            # Skip processing if document has already been processed
+            if str(doc.path) in already_processed_docs:
+                LOGGER.info(
+                    f"Document {doc.path.name} has already been processed. Skipping."
+                )
+                progress.advance(task)
+                continue
+
             try:
                 dates = get_date_range_metadata(
                     doc.model_dump_json(include={"year", "month_range"})
