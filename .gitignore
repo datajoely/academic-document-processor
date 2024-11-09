@@ -181,4 +181,5 @@ pyrightconfig.json
 *.docx
 *.htm
 .DS_Store
-documents.json
+documents_success.jsonl
+documents_failed.jsonl

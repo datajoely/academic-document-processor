@@ -6,12 +6,6 @@ import instructor
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 from rich import print_json
-from rich.progress import (
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-)
 
 from extract_text import from_pdf
 from print_utils import CONSOLE, LOGGER
@@ -25,7 +19,7 @@ class ContentExtractor:
         response_model: BaseModel,
         client: instructor.Client = None,
         model: str = "llama3.2",
-        chunk_step: int = 250,
+        chunk_step: int = 75,
         max_chunks: int = 20,
         max_retries: int = 10,
         base_url: str = "http://localhost:11434/v1",
@@ -48,13 +42,16 @@ class ContentExtractor:
 
     @staticmethod
     def create_default_client(base_url: str, api_key: str) -> instructor.Client:
-        return instructor.from_openai(
+        open_ai = (
             OpenAI(
                 base_url=base_url,
                 api_key=api_key,
-            ),
-            mode=instructor.Mode.JSON,
+            )
+            if base_url
+            else OpenAI()
         )
+
+        return instructor.from_openai(open_ai, mode=instructor.Mode.JSON)
 
     def _get_cumulative_chunk(self, current_step: int) -> str:
         """Returns the cumulative chunk up to the current step."""
@@ -62,83 +59,63 @@ class ContentExtractor:
         return " ".join(self.words[:end])
 
     def extract_information(self) -> BaseModel | None:
-        # Initialize Rich Progress with the shared console
-        with Progress(
-            SpinnerColumn(spinner_name="dots"),
-            TextColumn("[bold green]{task.description}"),
-            TimeElapsedColumn(),
-            console=self.console,
-            transient=True,  # Remove the progress bar after completion
-        ) as progress:
-            progress_task = progress.add_task(
-                "Processing chunks of...",
-                total=self.max_chunks,
+        overall_start_time = time.time()
+        fields = self.response_model.model_fields.keys()
+
+        for step in range(1, self.max_chunks + 1):
+            current_chunk_size = self.chunk_step * step
+            chunk = self._get_cumulative_chunk(step)
+
+            missing_fields = [
+                field for field in fields if self.extracted_data[field] is None
+            ]
+
+            if not missing_fields:
+                break
+
+            # Create dynamic prompt based on missing fields
+            fields_to_extract_str = "\n".join(
+                f"- {field.capitalize()}" for field in missing_fields
             )
-            overall_start_time = time.time()
+            json_keys_str = ", ".join(missing_fields)
 
-            # List of fields to extract
-            fields = self.response_model.model_fields.keys()
+            extraction_prompt = self.extraction_prompt_template.format(
+                chunk=chunk,
+                fields_to_extract=fields_to_extract_str,
+                json_keys=json_keys_str,
+            )
 
-            for step in range(1, self.max_chunks + 1):
-                current_chunk_size = self.chunk_step * step
-                chunk = self._get_cumulative_chunk(step)
+            chunk_start_time = time.time()
 
-                # Determine which fields still need to be extracted
-                missing_fields = [
-                    field for field in fields if self.extracted_data[field] is None
-                ]
-
-                # If all fields have been extracted, break the loop
-                if not missing_fields:
-                    break
-
-                # Create dynamic prompt based on missing fields
-                fields_to_extract_str = "\n".join(
-                    f"- {field.capitalize()}" for field in missing_fields
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": extraction_prompt,
+                        }
+                    ],
+                    response_model=self.response_model,
+                    max_retries=self.max_retries,
                 )
-                json_keys_str = ", ".join(missing_fields)
+                LOGGER.debug(f"Response: {resp}")
+            except ValidationError as e:
+                LOGGER.warning(f"Validation error: {e}")
+                continue
 
-                extraction_prompt = self.extraction_prompt_template.format(
-                    chunk=chunk,
-                    fields_to_extract=fields_to_extract_str,
-                    json_keys=json_keys_str,
-                )
+            chunk_end_time = time.time()
+            elapsed_time = chunk_end_time - chunk_start_time
+            LOGGER.info(f"Chunk {step} processed in {elapsed_time:.2f} seconds.")
 
-                chunk_start_time = time.time()
-
-                try:
-                    resp = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": extraction_prompt,
-                            }
-                        ],
-                        response_model=self.response_model,
-                        max_retries=self.max_retries,
+            # Update extracted data with any new fields
+            for field in missing_fields:
+                value = getattr(resp, field, None)
+                if value:
+                    self.extracted_data[field] = value
+                    LOGGER.info(
+                        f"Extracted '{field}' at chunk size {current_chunk_size} words."
                     )
-                    LOGGER.debug(f"Response: {resp}")
-                except ValidationError as e:
-                    LOGGER.warning(f"Validation error: {e}")
-                    progress.advance(progress_task)
-                    continue
-
-                chunk_end_time = time.time()
-                elapsed_time = chunk_end_time - chunk_start_time
-                LOGGER.info(f"Chunk {step} processed in {elapsed_time:.2f} seconds.")
-
-                # Update extracted data with any new fields
-                for field in missing_fields:
-                    value = getattr(resp, field, None)
-                    if value:
-                        self.extracted_data[field] = value
-                        LOGGER.info(
-                            f"Extracted '{field}' at chunk size {current_chunk_size} words."
-                        )
-
-                # Advance the progress bar after processing each chunk
-                progress.advance(progress_task)
 
             overall_end_time = time.time()
             total_elapsed = overall_end_time - overall_start_time
@@ -148,18 +125,24 @@ class ContentExtractor:
                 LOGGER.info(
                     f"Successfully extracted all required information in {total_elapsed:.2f} seconds."
                 )
-                # Create an instance of response_model with the extracted data
                 return self.response_model(**self.extracted_data)
-            else:
-                missing_fields = [
-                    field for field in fields if self.extracted_data[field] is None
-                ]
-                LOGGER.error(
-                    f"Failed to extract all required information within the maximum chunk size after {total_elapsed:.2f} seconds."
-                )
-                LOGGER.error(f"Missing fields: {missing_fields}")
-                # You can return the partially filled model or None
-                return self.response_model(**self.extracted_data)
+
+        # After the loop ends, check if all fields have been extracted
+        if all(self.extracted_data.values()):
+            LOGGER.info(
+                f"Successfully extracted all required information after processing all chunks in {total_elapsed:.2f} seconds."
+            )
+        else:
+            missing_fields = [
+                field for field in fields if self.extracted_data[field] is None
+            ]
+            LOGGER.error(
+                f"Failed to extract all required information within the maximum chunk size after {total_elapsed:.2f} seconds."
+            )
+            LOGGER.error(f"Missing fields: {missing_fields}")
+
+        # Return the partially filled model or None
+        return self.response_model(**self.extracted_data)
 
 
 if __name__ == "__main__":
