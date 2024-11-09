@@ -1,0 +1,9 @@
+[project]
+name = "pdf-processor"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "poppler-utils>=0.1.0",
+    "unstructured>=0.16.5",
+]
