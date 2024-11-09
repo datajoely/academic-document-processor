@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+from datetime import date
 
 from pydantic import BaseModel, computed_field
 
@@ -11,6 +12,11 @@ class ResearchPaperSummary(BaseModel):
     authors: str
     title: str
     abstract: str
+
+
+class PaperDates(BaseModel):
+    start_date: date
+    end_date: date
 
 
 class Document(BaseModel):

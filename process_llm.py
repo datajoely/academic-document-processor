@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pathlib
 import time
 
 import instructor
@@ -15,7 +14,6 @@ from rich.progress import (
 )
 
 from extract_text import from_pdf
-from parse_documents import ResearchPaperSummary
 from print_utils import CONSOLE, LOGGER
 
 
@@ -46,7 +44,7 @@ class ContentExtractor:
         self.total_words = len(self.words)
 
         # Initialize a dictionary to store extracted fields
-        self.extracted_data = {"authors": None, "title": None, "abstract": None}
+        self.extracted_data = {k: None for k in self.response_model.model_fields}
 
     @staticmethod
     def create_default_client(base_url: str, api_key: str) -> instructor.Client:
@@ -73,13 +71,13 @@ class ContentExtractor:
             transient=True,  # Remove the progress bar after completion
         ) as progress:
             progress_task = progress.add_task(
-                f"Processing chunks of '[blue]{pathlib.Path(pdf_path).name[20:]}[/blue]'...",
+                "Processing chunks of...",
                 total=self.max_chunks,
             )
             overall_start_time = time.time()
 
             # List of fields to extract
-            fields = ["authors", "title", "abstract"]
+            fields = self.response_model.model_fields.keys()
 
             for step in range(1, self.max_chunks + 1):
                 current_chunk_size = self.chunk_step * step
@@ -165,6 +163,8 @@ class ContentExtractor:
 
 
 if __name__ == "__main__":
+    from parse_documents import PaperDates, ResearchPaperSummary
+
     pdf_path = "data/journals/Acta Veterinaria Scandinavica/2017/Jan-Feb/Abscess of the cervical spine secondary to injection site infection in a heifer.pdf"
     content = from_pdf(pdf_path)
     extractor = ContentExtractor(
@@ -179,6 +179,42 @@ if __name__ == "__main__":
             {fields_to_extract}
             Provide the results in JSON format with keys: {json_keys}.
             """,
+    )
+    extracted_content = extractor.extract_information()
+    print_json(extracted_content.model_dump_json())
+
+    content = """
+    {
+        "year": 2018,
+        "month_range": "JAN-FEB 2018",
+    }
+    """
+    extractor = ContentExtractor(
+        content=content,
+        prompt_template="""
+        **Fields to extract from document:**
+        {fields_to_extract}
+
+        <document>
+        {chunk}
+        </document>
+
+        **Instructions:**
+        Extract the `start_date` and `end_date` from the provided document. Ensure that:
+        - Dates are in the `YYYY-MM-DD` format.
+        - `start_date` represents the first day of the starting month.
+        - `end_date` represents the last day of the ending month.
+        - If only a single month is provided, both `start_date` and `end_date` should correspond to that month.
+
+        **Output Format:**
+        Provide the results in JSON format ({json_keys}) adhering to the `PaperDates` model:
+        ```json
+        {{
+            "start_date": "YYYY-MM-DD",
+            "end_date": "YYYY-MM-DD"
+        }}
+        """,
+        response_model=PaperDates,
     )
     extracted_content = extractor.extract_information()
     print_json(extracted_content.model_dump_json())
