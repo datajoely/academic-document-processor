@@ -99,7 +99,7 @@ def get_research_paper_content(content: str) -> ResearchPaperSummary | None:
             {fields_to_extract}
             Provide the results in JSON format with keys: {json_keys}.
             """,
-        model="gpt-4o",
+        model="gpt-4o-mini",
         base_url=None,
         chunk_step=300,
     )
@@ -136,7 +136,7 @@ def get_date_range_metadata(content: str) -> ResearchPaperDates | None:
         }}
         """,
         response_model=ResearchPaperDates,
-        model="gpt-4o",
+        model="gpt-4o-mini",
         base_url=None,
         chunk_step=30,
     )

@@ -4,7 +4,7 @@
 
 ## Project Description
 
-The **Document Processor** is a Python-based tool designed to automate the extraction and processing of academic documents from various veterinary journals. It supports multiple document formats, including PDF, DOCX, and HTML, and leverages language models to extract key information such as authors, titles, abstracts, and publication dates. This tool streamlines the organization and analysis of research papers, making it easier for researchers and professionals in the veterinary field to manage and utilize large volumes of academic literature.
+The **Document Processor** is a Python-based tool designed to automate the extraction and processing of academic documents from various accademic journals. It supports multiple document formats, including PDF, DOCX, and HTML, and leverages language models to extract key information such as authors, titles, abstracts, and publication dates. This tool streamlines the organization and analysis of research papers, making it easier for researchers and professionals in the veterinary field to manage and utilize large volumes of academic literature.
 
 ## Features
 

@@ -320,6 +320,35 @@ wheels = [
 ]
 
 [[package]]
+name = "document-processor"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "bs4" },
+    { name = "instructor" },
+    { name = "openai" },
+    { name = "pdfplumber" },
+    { name = "pydantic" },
+    { name = "python-docx" },
+    { name = "requests" },
+    { name = "rich" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "bs4", specifier = ">=0.0.2" },
+    { name = "instructor", specifier = ">=1.6.3" },
+    { name = "openai", specifier = ">=1.54.3" },
+    { name = "pdfplumber", specifier = ">=0.11.4" },
+    { name = "pydantic", specifier = ">=2.9.2" },
+    { name = "python-docx", specifier = ">=1.1.2" },
+    { name = "requests", specifier = ">=2.32.3" },
+    { name = "rich", specifier = ">=13.9.4" },
+    { name = "ruff", specifier = ">=0.7.3" },
+]
+
+[[package]]
 name = "frozenlist"
 version = "1.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -684,35 +713,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4b/d8/ff02ef5255bf1b0c75f6badced772b4fd5c29a517d2a0be6f4e0a65a3227/openai-1.54.3.tar.gz", hash = "sha256:7511b74eeb894ac0b0253dc71f087a15d2e4d71d22d0088767205143d880cca6", size = 313963 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/77/85/e7adeee84edd24c6cc119b2ccaaacd9579c6a2c7f72d05e936ea6b33594e/openai-1.54.3-py3-none-any.whl", hash = "sha256:f18dbaf09c50d70c4185b892a2a553f80681d1d866323a2da7f7be2f688615d5", size = 389619 },
-]
-
-[[package]]
-name = "pdf-processor"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "bs4" },
-    { name = "instructor" },
-    { name = "openai" },
-    { name = "pdfplumber" },
-    { name = "pydantic" },
-    { name = "python-docx" },
-    { name = "requests" },
-    { name = "rich" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "bs4", specifier = ">=0.0.2" },
-    { name = "instructor", specifier = ">=1.6.3" },
-    { name = "openai", specifier = ">=1.54.3" },
-    { name = "pdfplumber", specifier = ">=0.11.4" },
-    { name = "pydantic", specifier = ">=2.9.2" },
-    { name = "python-docx", specifier = ">=1.1.2" },
-    { name = "requests", specifier = ">=2.32.3" },
-    { name = "rich", specifier = ">=13.9.4" },
-    { name = "ruff", specifier = ">=0.7.3" },
 ]
 
 [[package]]

@@ -1,7 +1,7 @@
 [project]
 name = "document-processor"
 version = "0.1.0"
-description = "Add your description here"
+description = "Python-based tool designed to automate the extraction and processing of academic documents from various accademic journals"
 requires-python = ">=3.11"
 dependencies = [
     "bs4>=0.0.2",
