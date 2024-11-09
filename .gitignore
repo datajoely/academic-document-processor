@@ -181,3 +181,4 @@ pyrightconfig.json
 *.docx
 *.htm
 .DS_Store
+documents.json
