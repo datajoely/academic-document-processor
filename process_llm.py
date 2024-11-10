@@ -5,9 +5,7 @@ import time
 import instructor
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
-from rich import print_json
 
-from extract_text import from_pdf
 from print_utils import CONSOLE, LOGGER
 
 
@@ -54,13 +52,17 @@ class ContentExtractor:
         return instructor.from_openai(open_ai, mode=instructor.Mode.JSON)
 
     def _get_cumulative_chunk(self, current_step: int) -> str:
-        """Returns the cumulative chunk up to the current step."""
+        """Returns the cumulative chunk up to the current step, ensuring it does not exceed the total length."""
         end = min(self.chunk_step * current_step, self.total_words)
         return " ".join(self.words[:end])
 
     def extract_information(self) -> BaseModel | None:
         overall_start_time = time.time()
-        fields = self.response_model.model_fields.keys()
+        fields = {
+            k
+            for k, v in self.response_model.model_fields.items()
+            if "None" not in str(v.annotation)
+        }
 
         for step in range(1, self.max_chunks + 1):
             current_chunk_size = self.chunk_step * step
@@ -106,7 +108,10 @@ class ContentExtractor:
 
             chunk_end_time = time.time()
             elapsed_time = chunk_end_time - chunk_start_time
-            LOGGER.info(f"Chunk {step} processed in {elapsed_time:.2f} seconds.")
+
+            LOGGER.info(
+                f"Chunk of size {current_chunk_size} processed in {elapsed_time:.2f} seconds."
+            )
 
             # Update extracted data with any new fields
             for field in missing_fields:
@@ -143,61 +148,3 @@ class ContentExtractor:
 
         # Return the partially filled model or None
         return self.response_model(**self.extracted_data)
-
-
-if __name__ == "__main__":
-    from parse_documents import PaperDates, ResearchPaperSummary
-
-    pdf_path = "data/journals/Acta Veterinaria Scandinavica/2017/Jan-Feb/Abscess of the cervical spine secondary to injection site infection in a heifer.pdf"
-    content = from_pdf(pdf_path)
-    extractor = ContentExtractor(
-        content=content,
-        response_model=ResearchPaperSummary,
-        prompt_template="""
-            Below is text extracted from a academic document:
-            <document>
-            {chunk}
-            </document>
-            Please extract the following information:
-            {fields_to_extract}
-            Provide the results in JSON format with keys: {json_keys}.
-            """,
-    )
-    extracted_content = extractor.extract_information()
-    print_json(extracted_content.model_dump_json())
-
-    content = """
-    {
-        "year": 2018,
-        "month_range": "JAN-FEB 2018",
-    }
-    """
-    extractor = ContentExtractor(
-        content=content,
-        prompt_template="""
-        **Fields to extract from document:**
-        {fields_to_extract}
-
-        <document>
-        {chunk}
-        </document>
-
-        **Instructions:**
-        Extract the `start_date` and `end_date` from the provided document. Ensure that:
-        - Dates are in the `YYYY-MM-DD` format.
-        - `start_date` represents the first day of the starting month.
-        - `end_date` represents the last day of the ending month.
-        - If only a single month is provided, both `start_date` and `end_date` should correspond to that month.
-
-        **Output Format:**
-        Provide the results in JSON format ({json_keys}) adhering to the `PaperDates` model:
-        ```json
-        {{
-            "start_date": "YYYY-MM-DD",
-            "end_date": "YYYY-MM-DD"
-        }}
-        """,
-        response_model=PaperDates,
-    )
-    extracted_content = extractor.extract_information()
-    print_json(extracted_content.model_dump_json())

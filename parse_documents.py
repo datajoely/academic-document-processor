@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import pathlib
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 
 from pydantic import BaseModel, computed_field
@@ -12,6 +14,7 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn,
     TimeElapsedColumn,
+    TimeRemainingColumn,
 )
 
 import extract_text
@@ -20,17 +23,23 @@ from process_llm import ContentExtractor
 
 
 class ResearchPaperSummary(BaseModel):
-    authors: list[str]
+    """Model to hold research paper summary including authors, title, and abstract."""
+
+    authors: list[str] | None
     title: str
     abstract: str
 
 
 class ResearchPaperDates(BaseModel):
+    """Model to hold the start and end dates for a research paper."""
+
     start_date: date
     end_date: date
 
 
 class Document(BaseModel):
+    """Represents a document to be processed with metadata such as journal, year, and path."""
+
     journal: str
     year: int | None
     month_range: str | None
@@ -38,14 +47,18 @@ class Document(BaseModel):
 
     @computed_field
     def kind(self) -> str:
+        """Returns the file extension type of the document, e.g., PDF, DOCX."""
         return self.path.suffix.replace(".", "").upper()
 
     @computed_field
     def name(self) -> str:
+        """Returns the name of the document."""
         return str(self.path.name)
 
     def read_text(self) -> str | None:
+        """Reads and extracts text content from the document based on its type."""
         str_path = str(self.path)
+        # Extract text based on document type
         match self.kind:
             case "PDF":
                 return extract_text.from_pdf(str_path)
@@ -59,13 +72,17 @@ class Document(BaseModel):
 
 
 class DocumentList(BaseModel):
+    """Model to hold a list of Document instances."""
+
     docs: list[Document]
 
 
-def collect_documents() -> DocumentList:
+def _collect_documents() -> DocumentList:
+    """Collects documents from the 'data' directory and returns a DocumentList."""
     documents = []
     for pattern in ["**/*.pdf", "**/*.htm*", "**/*.docx"]:
         for path in pathlib.Path("data").glob(pattern):
+            # Determine document metadata based on directory structure
             if len(path.parts) == 6:
                 *_, journal, year, month_range, _ = path.parts
                 documents.append(
@@ -77,14 +94,15 @@ def collect_documents() -> DocumentList:
                     )
                 )
             else:
-                _, journal, *_ = path.parts
+                _, _, journal, *_ = path.parts
                 documents.append(
                     Document(journal=journal, year=None, month_range=None, path=path)
                 )
     return DocumentList(docs=documents)
 
 
-def get_research_paper_content(content: str) -> ResearchPaperSummary | None:
+def _get_research_paper_content(content: str) -> ResearchPaperSummary | None:
+    """Extracts research paper content including authors, title, and abstract."""
     extractor = ContentExtractor(
         content=content,
         response_model=ResearchPaperSummary,
@@ -104,10 +122,12 @@ def get_research_paper_content(content: str) -> ResearchPaperSummary | None:
     try:
         return extractor.extract_information()
     except ValidationError:
+        # Return None if the validation of extracted content fails
         return None
 
 
-def get_date_range_metadata(content: str) -> ResearchPaperDates | None:
+def _get_date_range_metadata(content: str) -> ResearchPaperDates | None:
+    """Extracts start and end dates from the document content."""
     extractor = ContentExtractor(
         content=content,
         prompt_template="""
@@ -141,13 +161,14 @@ def get_date_range_metadata(content: str) -> ResearchPaperDates | None:
     try:
         return extractor.extract_information()
     except ValidationError:
+        # Return None if the validation of extracted dates fails
         return None
 
 
 if __name__ == "__main__":
     success_output = []
     failed_output = []
-    docs = collect_documents().docs
+    docs = _collect_documents().docs
 
     # Load already processed documents from documents_success.jsonl
     already_processed_docs = set()
@@ -157,7 +178,12 @@ if __name__ == "__main__":
                 processed_doc = json.loads(line)
                 already_processed_docs.add(processed_doc["path"])
     except FileNotFoundError:
+        # If the file does not exist, skip loading and start fresh
         pass
+
+    # Initialize locks for file writing
+    success_file_lock = threading.Lock()
+    failed_file_lock = threading.Lock()
 
     with Progress(
         SpinnerColumn(),
@@ -165,6 +191,7 @@ if __name__ == "__main__":
         "[progress.percentage]{task.percentage:>3.0f}%",
         TextColumn("{task.description}"),
         TimeElapsedColumn(),
+        TimeRemainingColumn(),
         console=CONSOLE,
     ) as progress:
         total_docs = len(docs)
@@ -172,44 +199,93 @@ if __name__ == "__main__":
             f"Processed 0/{total_docs} documents", total=total_docs
         )
 
-        for index, doc in enumerate(docs):
-            progress.update(
-                task, description=f"Processing {index+1}/{total_docs} documents"
-            )
-
-            # Skip processing if document has already been processed
+        def _process_document(
+            doc: Document,
+            progress,
+            task_id,
+            success_file_lock,
+            failed_file_lock,
+        ):
+            """Processes an individual document by extracting metadata and content."""
             if str(doc.path) in already_processed_docs:
+                # Skip processing if the document has already been processed
                 LOGGER.info(
-                    f"Document {doc.path.name} has already been processed. Skipping."
+                    f"Document '{doc.path.name}' has already been processed. Skipping."
                 )
-                progress.advance(task)
-                continue
+                # Update progress
+                progress.update(
+                    task_id,
+                    advance=1,
+                    description=f"Processed {progress.tasks[task_id].completed}/{progress.tasks[task_id].total} documents",
+                )
+                return
 
             try:
-                dates = get_date_range_metadata(
+                # Extract dates and content from the document
+                dates = _get_date_range_metadata(
                     doc.model_dump_json(include={"year", "month_range"})
                 )
-                summary = get_research_paper_content(doc.read_text())
-                processed_doc = (
-                    doc.model_dump(mode="json")
-                    | summary.model_dump()
-                    | dates.model_dump(mode="json")
-                )
-                success_output.append(processed_doc)
-                # Append to documents_success.jsonl
-                with open("documents_success.jsonl", "a") as success_file:
-                    success_file.write(json.dumps(processed_doc) + "\n")
+                text_data = doc.read_text()
+                if not text_data or len(text_data) < 100:
+                    LOGGER.error(
+                        f'Skipping since minimal text content extracted from "{doc.name}"'
+                    )
+                    raise FileNotFoundError()
+                else:
+                    summary = _get_research_paper_content(text_data)
+                    if summary is None:
+                        raise ValidationError()
+                    processed_doc = (
+                        doc.model_dump(mode="json")
+                        | summary.model_dump()
+                        | dates.model_dump(mode="json")
+                    )
+                    with (
+                        success_file_lock,
+                        open("documents_success.jsonl", "a") as success_file,
+                    ):
+                        success_file.write(json.dumps(processed_doc) + "\n")
             except ValidationError:
-                failed_output.append(doc.model_dump(mode="json"))
+                # Handle validation error during extraction
                 LOGGER.error(f"Validation error for document {doc}")
-                # Append to documents_failed.jsonl
-                with open("documents_failed.jsonl", "a") as failed_file:
-                    failed_file.write(json.dumps(doc.model_dump(mode="json")) + "\n")
+                failed_doc = doc.model_dump(mode="json")
+                with (
+                    failed_file_lock,
+                    open("documents_failed.jsonl", "a") as failed_file,
+                ):
+                    failed_file.write(json.dumps(failed_doc) + "\n")
             except Exception as e:
-                failed_output.append(doc.model_dump(mode="json"))
+                # Handle any unexpected errors during processing
                 LOGGER.error(f"Unexpected error for document {doc}: {e}")
-                # Append to documents_failed.jsonl
-                with open("documents_failed.jsonl", "a") as failed_file:
-                    failed_file.write(json.dumps(doc.model_dump(mode="json")) + "\n")
+                failed_doc = doc.model_dump(mode="json")
+                with (
+                    failed_file_lock,
+                    open("documents_failed.jsonl", "a") as failed_file,
+                ):
+                    failed_file.write(json.dumps(failed_doc) + "\n")
             finally:
-                progress.advance(task)
+                # Update progress
+                progress.update(
+                    task_id,
+                    advance=1,
+                    description=f"Processed {progress.tasks[task_id].completed}/{progress.tasks[task_id].total} documents",
+                )
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [
+                executor.submit(
+                    _process_document,
+                    doc,
+                    progress,
+                    task,
+                    success_file_lock,
+                    failed_file_lock,
+                )
+                for doc in docs
+            ]
+            # Wait for all futures to complete
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    LOGGER.error(f"Error processing document: {e}")
