@@ -183,3 +183,4 @@ pyrightconfig.json
 .DS_Store
 documents_success.jsonl
 documents_failed.jsonl
+documents_combined.xlsx

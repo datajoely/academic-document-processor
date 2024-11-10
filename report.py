@@ -10,5 +10,5 @@ if __name__ == "__main__":
     failure_df = pd.read_json("documents_failed.jsonl", lines=True)
 
     with pd.ExcelWriter("documents_combined.xlsx", engine="openpyxl") as writer:
-        success_df.to_excel(writer, sheet_name="Success", index=False)
-        failure_df.to_excel(writer, sheet_name="Failure", index=False)
+        success_df.to_excel(writer, sheet_name="processed_docs", index=False)
+        failure_df.to_excel(writer, sheet_name="failures", index=False)
